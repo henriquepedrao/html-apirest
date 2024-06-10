@@ -1,106 +1,117 @@
-# Nome: Pedro Henrique Jovanini Geraldo 5ºAMS-DS
 # -*- coding: utf-8 -*-
 from flask import Flask,request, jsonify
-
-# flask CORS
-from flask_cors import CORS
-
 # config import
 from config import app_config, app_active
+#
+from flask_restful import Resource, Api
+from sqlalchemy import create_engine, text
+from json import dumps
+from flask_cors import CORS,cross_origin
+# from flask_restplus import Api
 
 config = app_config[app_active]
 
-
-# db connect
-from sqlalchemy import create_engine, text
-
 db_connect = create_engine('mysql+mysqlconnector://root@localhost/fatec')
-# db_connect = create_engine('mysql+mysqlconnector://admin:admin@192.168.13.236/fatec')
+#db_connect = create_engine('mysql+mysqlconnector://admin:admin@192.168.13.236/fatec').
 
 def create_app(config_name):
+
     app = Flask(__name__, template_folder='templates')
-    
-    CORS(app)
-    
+
+    # api = Api(app,
+    #           version='1.0',
+    #           title='Sensores Arduino',
+    #           description='Api simples de monitoramento',
+    #           doc='/docs')
+    #http://localhost:5000/monitoramento 
+    #http://10.0.0.215:5000/monitoramento
+    #http://nitro-carlao:5000/monitoramento
+    # net::ERR_CONNECTION_REFUSED
+    cors = CORS(app, resources={r'/monitoramento/*':{'origins':'*'}})
+
     app.secret_key = config.SECRET
     app.config.from_object(app_config[config_name])
     app.config.from_pyfile('config.py')
-
+    # app.config['CORS_HEADERS'] = 'Content-Type'    
+    # rota basica 
+    @app.route('/', methods=["GET"])
+    def test():
+        result = "Ola mundo"
+        return result
     
-    # get-all
-    @app.route('/monitoramento/', methods=['GET'])
-    def get_all():
-        conn = db_connect.connect()
+    @app.route('/monitoramento/grafico1', methods=['GET'])
+    def TotalizacaoRegistro():
+       conn = db_connect.connect()
+       query = conn.execute(text('SELECT dispositivo, COUNT(dispositivo) as TotalRegistros FROM monitoramento GROUP BY dispositivo limit 10'))
+       conn.commit()
+       result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
+       conn.close()
+       return jsonify(result)
+
+    @app.route('/monitoramento', methods=['POST', 'GET', 'DELETE', 'PUT'])
+    def users():
+        # origin = request.headers.get('Origin')
+        if ( request.method == "POST" ):
+            conn = db_connect.connect()
+            temperatura = request.json['temperatura']
+            umidade = request.json['umidade']
+            dispositivo = request.json['dispositivo']        
+            luminosidade = request.json['luminosidade']
+            conn.execute(text("insert into monitoramento (temperatura, umidade, dispositivo, luminosidade ) values ( '{0}', '{1}', '{2}' , '{3}')".format(temperatura, umidade, dispositivo,luminosidade)))        
+                    
+            #
+            query = conn.execute(text('select * from monitoramento ORDER BY id DESC LIMIT 1'))
+            conn.commit()
+            result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
+            #
+            return jsonify(result) 
         
-        limit = request.args.get('limit', default=20, type=int)
+        elif ( request.method == "GET" ):
+            conn = db_connect.connect()
+            query = conn.execute(text('select * from monitoramento order by id DESC limit 10'))
+            conn.commit()
+            result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
 
-        query = conn.execute(text(f'select * from monitoramento order by temperatura LIMIT {limit}'))
-
-        result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
-
-        return jsonify(result)
-
-    # get by dispositivo
-    @app.route('/monitoramento/<string:dispositivo>', methods=["GET"])
-    def get(dispositivo):
-        conn = db_connect.connect()
+            # response = jsonify(result)
+            # response.headers.add('Access-Control-Allow-Credentials', 'false')
+            # response.headers.add('Access-Control-Allow-Headers', 'Content-Type')
+            # response.headers.add('Access-Control-Allow-Headers', 'x-csrf-token')
+            # response.headers.add('Access-Control-Allow-Origin', origin)
+            #net::ERR_CONNECTION_REFUSED
+            return jsonify(result)
+            #return "ola"
+            #return response
+ 
+        elif ( request.method == "PUT" ):
+            conn = db_connect.connect()
+            id_ = request.json['id']
+            temperatura = request.json['temperatura']
+            umidade = request.json['umidade']
+            dispositivo = request.json['dispositivo'] 
+            luminosidade = request.json['luminosidade'] 
+            query = conn.execute(text("update monitoramento set temperatura = '{0}' , umidade = '{1}' , dispositivo = '{2}' , luminosidade = '{3}' where Id = {4}".format(temperatura, umidade, dispositivo, luminosidade, id_)))
+            conn.commit()        
+            query = conn.execute(text('select * from monitoramento order by temperatura'))
+            result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]        
+            return jsonify(result) 
         
-        query = conn.execute(text("select * from monitoramento where dispositivo = '{0}' order by temperatura".format(dispositivo)))
+        elif ( request.method == "DELETE" ):
+            conn = db_connect.connect()
+            id_ = request.json['id']
+            query = conn.execute(text("delete from monitoramento where Id = {0}".format(id_)))
+            conn.commit()        
+            query = conn.execute(text('select * from monitoramento order by temperatura'))
+            result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]        
+            return jsonify(result) 
+        
 
-        result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
-
-        return jsonify(result)
-    
-    # post
-    @app.route('/monitoramento/', methods=['POST'])
-    def post():
-        conn = db_connect.connect()
-        temperatura = request.json['temperatura']
-        umidade = request.json['umidade']
-        dispositivo = request.json['dispositivo']
-        
-        conn.execute(text("insert into monitoramento (temperatura, umidade, dispositivo) values ( '{0}', '{1}', '{2}')".format(temperatura, umidade, dispositivo)))
-        
-        conn.commit()
-        
-        query = conn.execute(text('select * from monitoramento order by temperatura'))
-
-        result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
-        
-        return jsonify(result)
-
-    # delete
-    @app.route('/monitoramento/<int:id>', methods=['DELETE'])
-    def delete(id):
-        conn = db_connect.connect()
-
-        query = conn.execute(text("delete from monitoramento where Id = {0}".format(id)))
-
-        conn.commit()
-        
-        query = conn.execute(text('select * from monitoramento order by temperatura'))
-
-        result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
-        
-        return jsonify(result)
-
-    # put
-    @app.route('/monitoramento/', methods=['PUT'])
-    def put():
-        conn = db_connect.connect()
-        id = request.json['id']
-        temperatura = request.json['temperatura']
-        umidade = request.json['umidade']
-        dispositivo = request.json['dispositivo']
-        
-        conn.execute(text("update monitoramento set temperatura = '{0}', umidade = '{1}', dispositivo = '{2}' where Id = {3}".format(temperatura, umidade, dispositivo, id)))
-        
-        conn.commit()
-        
-        query = conn.execute(text('select * from monitoramento order by temperatura'))
-
-        result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
-        
-        return jsonify(result)
+    @app.route('/monitoramento/<id>', methods=['GET'])
+    # @cross_origin()
+    def usersID(self, id):
+        if ( request.method == "GET" ):
+            conn = db_connect.connect()
+            query = conn.execute(text('select * from monitoramento order by temperatura'))
+            result = [dict(zip(tuple(query.keys()), i)) for i in query.cursor]
+            return jsonify(result)
     
     return app
